@@ -127,19 +127,36 @@ def fetch_data(zip_code):
     else:
         print(f"Failed to fetch data for zip code {zip_code}. Status code: {response.status_code}")
 
-# Fetch data for all zip codes
-get_cities = threading.Thread(target=city_thread, args=[complete, buffer, all_data])
-get_cities.start()
-for zip_code in zip_code_numbers:
-    fetch_data(zip_code)
 
-# Toggle flag to tell thread retrieval process is complete
-complete.toggle(True)
-get_cities.join()
 
-# Save all data to a JSON file
-with open('response_data_active.json', 'w') as f:
-    json.dump(all_data, f, indent=4)
+def main():
+        # Initialize an empty list to hold all data
+    all_data = []
 
-# Print the count of elements in the data
-print(f"Total number of elements in the data: {len(all_data)}")
+    # Buffer for houses that do not yet have their extended information
+    buffer = [] 
+
+    # The compelte flag must be wrapped in order to pass the boolean value by reference...            
+    complete = FlagWrap(False)
+    
+    # Fetch data for all zip codes
+    get_cities = threading.Thread(target=city_thread, args=(complete, buffer, all_data))
+    get_cities.start()
+    # for zip_code in zip_code_numbers:
+        # fetch_data(zip_code)
+    with open("response_data_active.json", 'r') as readFile:
+        buffer.extend(json.loads(readFile.read()))
+
+    # Toggle flag to tell thread retrieval process is complete
+    complete.toggle(True)
+    get_cities.join()
+
+    # Save all data to a JSON file
+    with open('response_data_active.json', 'w') as f:
+        json.dump(all_data, f, indent=4)
+
+    # Print the count of elements in the data
+    print(f"Total number of elements in the data: {len(all_data)}")
+
+if __name__ == "__main__":
+    main()

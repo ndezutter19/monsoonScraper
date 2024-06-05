@@ -15,20 +15,23 @@ def get_city(geolocator, lat, lng):
             
 def run_thread(complete_flag, buffer: list, end_point: list):
     geolocator = Nominatim(user_agent="code_scrape_proj")
-    
+    count = 1
+    total = len(buffer)
     # While the listing collection process is not complete and the buffer is not empty
     # continue to get properties from buffer.
     while(complete_flag.flag != True or len(buffer) != 0):
         # If buffer is empty but process is not complete then sleep...
         try:
             house =  buffer.pop()
-        except IndexError as e:
-            time.sleep(0.5)
-            continue
+            print(f"New house proccessing ({count} of {total}): {house['address']}")
             
-        lat = house['lat']
-        lng = house['lng']
+            lat = house['lat']
+            lng = house['lng']
+            
+            city = get_city(geolocator, lat, lng)
+            house['city'] = city
+            count += 1
+            end_point.append(house)
+        except IndexError as e:
+            time.sleep(5)
         
-        city = get_city(geolocator, lat, lng)
-        house['city'] = city
-        end_point.append(house)

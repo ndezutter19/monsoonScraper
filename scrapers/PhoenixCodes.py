@@ -1,9 +1,11 @@
 import concurrent.futures
 import json
+import re
 import random
 import time
 import pprint
 import requests
+import ScrapeTools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
@@ -14,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import ElementNotVisibleException
 from selenium.webdriver.support.relative_locator import locate_with
 from selenium.common.exceptions import StaleElementReferenceException
-from CodeEnforcementEntry import CodeEnforcementEntry
+from monsoonScraper.scrapers.CodeEnforcementEntry import CodeEnforcementEntry
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -82,18 +84,16 @@ def execute_task(proxies, houses: list, id):
     bot.set_script_timeout(30)
     bot.get(form_url)
     
-
-    
     properties_with_violations = {}
     
     # While there are still houses in the houses array pop and look for violations.
     while len(houses) > 0:
         house = houses.pop()
-        if house['Property']['city'] != "Phoenix":
+        if house['city'] != "Phoenix":
             continue
         
         try:
-            properties_with_violations[house['Property']['address']] = check_code_violations(bot, house)
+            properties_with_violations[house['address']] = check_code_violations(bot, house)
         except:
             print(f"Error encountered while checking address: {house['Property']['address']}")
             continue
@@ -104,22 +104,29 @@ def check_code_violations(bot, house):
     violations = {}
     
     # Get data from house json.
-    prop_num = house['Property']['streetNumber']
-    prop_st_dir = house['Property']['streetDirPrefix']
-    prop_st_name = house['Property']['route']
+    pattern = r'(\d+)\s+(\w+)\s+([\w\s]+)\s+(\w+)$'
+    
+    match = re.match(pattern, house['address'])
+    
+    if not match:
+        raise ValueError("Address format is incorrect. Expected format: 'streetNumber streetDirection streetName streetType'")
+    
+    prop_num = match.group(1)
+    prop_st_dir = match.group(2)
+    prop_st_name = match.group(3) + " " +  match.group(4)
     
     # Enter data into text input fields.
-    st_number_box = check_element_viability(bot, By.XPATH, "//input[@name='stNumber']")
+    st_number_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stNumber']")
     st_number_box.send_keys(prop_num)
     
-    st_direction_box = check_element_viability(bot, By.XPATH, "//input[@name='stDirection']")
+    st_direction_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stDirection']")
     st_direction_box.send_keys(prop_st_dir)
     
-    st_name_box = check_element_viability(bot, By.XPATH, "//input[@name='stName']")
+    st_name_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stName']")
     st_name_box.send_keys(prop_st_name)
     
     # Click search.
-    search_button = check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
+    search_button = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
     ActionChains(bot)\
         .move_to_element(search_button)\
         .click()\
@@ -132,7 +139,7 @@ def check_code_violations(bot, house):
 
     
     # Clear old data.
-    search_button = check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
+    search_button = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
     clear_button_locator = locate_with(By.XPATH, "//input[@type='reset']").to_right_of(search_button)
     clear_button = bot.find_element(clear_button_locator)
     ActionChains(bot)\
@@ -223,43 +230,6 @@ def check_results(bot: webdriver.Chrome, search_button):
         print("Could not find the results 'p' object")
         return False
 
-
-def check_element_viability(bot: webdriver.Chrome, locator_type, locator_value):
-    # Checks if an element is a valid target for actions to avoid stale element error.
-    wait = WebDriverWait(bot, timeout=MAX_TIMEOUT)
-    try:
-        check_element = wait.until(EC.presence_of_element_located([locator_type, locator_value]))
-        wait.until(EC.element_to_be_clickable(check_element))
-        wait.until_not(EC.staleness_of(check_element))
-        return check_element
-    except StaleElementReferenceException:
-        return check_element_viability(bot, locator_type, locator_value)
-    except TimeoutException:
-        print(f'Timed out while looking for element with {locator_type}:{locator_value}')
-    
-def read_from_file():
-    # Reads data from file instead of requesting it for the sake of speed.
-    houses: list
-    with open("HouseData.json", mode="r") as f:
-        houses = json.load(f)
-        return houses
-    
-def borrow_from_api():
-    # "Borrows" the data from the API.
-    response = requests.get(request_url)
-    data = response.json()
-    houses = []
-    with open("HouseData.json", mode="w") as f:
-        houses_list: list = data['items']
-        for house in houses_list:
-            if house['Property']['listPrice'] < 500000:
-                houses.append(house)
-        f.write(json.dumps(houses))
-    
-    print(len(houses))
-    
-    return houses
-
 def start_threads(houses : list):
     proxies = None # get_proxies()
     properties_in_violation = []
@@ -278,20 +248,4 @@ def start_threads(houses : list):
     
     return properties_in_violation
 
-def get_proxies():
-    prox = []
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    bot = webdriver.Chrome(options)
-    bot.get("https://sslproxies.org/")
-    
-    table = bot.find_element(By.XPATH, "//table[@class='table table-striped table-bordered']/tbody")
-    entries = table.find_elements(By.TAG_NAME, 'tr')
-    for entry in entries:
-        temp = entry.find_elements(By.TAG_NAME, 'td')
-        prox.append(f"{temp[0].text}:{temp[1].text}")
-    
-    bot.close()
-    return prox
 
