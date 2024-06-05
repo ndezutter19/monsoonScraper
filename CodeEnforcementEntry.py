@@ -20,13 +20,13 @@ class CodeEnforcementEntry():
     
     def to_dict(self):
         return {
-            'Case Number': self.caseNum,
-            'Status': self.status,
-            'Open Date': self.openDate,
-            'Close Date': self.closeDate,
-            'Owner': self.owner,
-            'Link': self.link,
-            'Violations': self.violations
+            'caseNumber': self.caseNum,
+            'status': self.status,
+            'openDate': self.openDate,
+            'closeDate': self.closeDate,
+            'owner': self.owner,
+            'link': self.link,
+            'violations': self.violations
         }
     
     def isRecent(self, noMonths):

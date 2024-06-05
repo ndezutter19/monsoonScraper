@@ -1,5 +1,7 @@
 import requests
 import json
+import threading
+from AddressHelper import run_thread as city_thread
 
 # URL for the POST request
 url = "https://mymonsoon.com/api/properties/thin-search"
@@ -62,6 +64,19 @@ headers = {
 # Initialize an empty list to hold all data
 all_data = []
 
+# Buffer for houses that do not yet have their extended information
+buffer = [] 
+
+# The compelte flag must be wrapped in order to pass the boolean value by reference...
+class FlagWrap:
+    def __init__(self, flag: bool):
+        self.flag = flag
+
+    def toggle(self, value):
+        self.flag = value
+        
+complete = FlagWrap(False)
+
 # Function to make the POST request and append data to the list
 def fetch_data(zip_code):
     payload = {
@@ -106,15 +121,21 @@ def fetch_data(zip_code):
         data = response.json()
         
         # Append the data to the list
-        all_data.extend(data)
+        buffer.extend(data)
         
         print(f"Data for zip code {zip_code} fetched successfully.")
     else:
         print(f"Failed to fetch data for zip code {zip_code}. Status code: {response.status_code}")
 
 # Fetch data for all zip codes
+get_cities = threading.Thread(target=city_thread, args=[complete, buffer, all_data])
+get_cities.start()
 for zip_code in zip_code_numbers:
     fetch_data(zip_code)
+
+# Toggle flag to tell thread retrieval process is complete
+complete.toggle(True)
+get_cities.join()
 
 # Save all data to a JSON file
 with open('response_data_active.json', 'w') as f:
