@@ -8,12 +8,14 @@
         "city": "",
         "streetPrefix": "",
         "streetSuffix": "",
+        "route": "",
         "streetNum": "",
         "unitNum": null,
         "mlsSource": "",
         "propertyStatus": "",
         "listPrice": null,
         "photos": [],
-        "violations": []
+        "violations": [],
+        "agentFullName": []
     }
 }

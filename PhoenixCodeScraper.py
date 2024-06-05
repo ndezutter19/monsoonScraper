@@ -82,21 +82,14 @@ def execute_task(proxies, houses: list, id):
     bot.set_script_timeout(30)
     bot.get(form_url)
     
-
-    
     properties_with_violations = {}
     
     # While there are still houses in the houses array pop and look for violations.
     while len(houses) > 0:
         house = houses.pop()
-        if house['Property']['city'] != "Phoenix":
+        if house['city'] != "Phoenix":
             continue
-        
-        try:
-            properties_with_violations[house['Property']['address']] = check_code_violations(bot, house)
-        except:
-            print(f"Error encountered while checking address: {house['Property']['address']}")
-            continue
+        properties_with_violations[house['address']] = check_code_violations(bot, house)
     
     return properties_with_violations
 
@@ -104,9 +97,9 @@ def check_code_violations(bot, house):
     violations = {}
     
     # Get data from house json.
-    prop_num = house['Property']['streetNumber']
-    prop_st_dir = house['Property']['streetDirPrefix']
-    prop_st_name = house['Property']['route']
+    prop_num = house['streetNum']
+    prop_st_dir = house['streetPrefix']
+    prop_st_name = house['route']
     
     # Enter data into text input fields.
     st_number_box = check_element_viability(bot, By.XPATH, "//input[@name='stNumber']")
@@ -169,7 +162,7 @@ def process_results(bot: webdriver.Chrome):
         case_closed = data_set[4]
         
         # If entry isn't recent immediately move on else add to entries list.
-        if not isRecent(case_opened, case_closed):
+        if isRecent(case_opened.text, case_closed.text) != True:
             continue
         
         case_number = data_set[0]
@@ -178,7 +171,7 @@ def process_results(bot: webdriver.Chrome):
         owner = data_set[5]
         link = case_number.find_element(By.XPATH, './a').get_attribute('href')
         entry = CodeEnforcementEntry(case_number.text, address.text, case_status.text, case_opened.text, case_closed.text, owner.text, link)
-    
+
         recent_entries.append(entry)
 
     # For every recent entry scrape violation types from their links.
@@ -236,31 +229,8 @@ def check_element_viability(bot: webdriver.Chrome, locator_type, locator_value):
         return check_element_viability(bot, locator_type, locator_value)
     except TimeoutException:
         print(f'Timed out while looking for element with {locator_type}:{locator_value}')
-    
-def read_from_file():
-    # Reads data from file instead of requesting it for the sake of speed.
-    houses: list
-    with open("HouseData.json", mode="r") as f:
-        houses = json.load(f)
-        return houses
-    
-def borrow_from_api():
-    # "Borrows" the data from the API.
-    response = requests.get(request_url)
-    data = response.json()
-    houses = []
-    with open("HouseData.json", mode="w") as f:
-        houses_list: list = data['items']
-        for house in houses_list:
-            if house['Property']['listPrice'] < 500000:
-                houses.append(house)
-        f.write(json.dumps(houses))
-    
-    print(len(houses))
-    
-    return houses
 
-def start_threads(houses : list):
+def run_violation_scraper(houses : list):
     proxies = None # get_proxies()
     properties_in_violation = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
