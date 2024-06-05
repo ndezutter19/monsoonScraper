@@ -1,0 +1,19 @@
+{
+    "listingDefinition": {
+        "listingNumber": "",
+        "address": "",
+        "postal": "",
+        "parcel": "",
+        "county": "",
+        "city": "",
+        "streetPrefix": "",
+        "streetSuffix": "",
+        "streetNum": "",
+        "unitNum": null,
+        "mlsSource": "",
+        "propertyStatus": "",
+        "listPrice": null,
+        "photos": [],
+        "violations": []
+    }
+}

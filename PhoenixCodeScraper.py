@@ -5,8 +5,6 @@ import time
 import pprint
 import requests
 from selenium import webdriver
-import selenium.webdriver
-import selenium.webdriver.chrome
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import TimeoutException
@@ -17,14 +15,17 @@ from selenium.common.exceptions import ElementNotVisibleException
 from selenium.webdriver.support.relative_locator import locate_with
 from selenium.common.exceptions import StaleElementReferenceException
 from CodeEnforcementEntry import CodeEnforcementEntry
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 
-request_url = "https://api.umeprojects.com/api/v1/public/listings?orderBy=certified,verified&order=DESC,DESC&location=AZ&rooms=&bathrooms=&loanType=&sqft={%22min%22:%22%22,%22max%22:%22%22}&rate={%22min%22:%22%22,%22max%22:%22%22}&price={%22min%22:%22%22,%22max%22:%22500,000%22}&maxDownPayment={%22min%22:%22%22,%22max%22:%22%22}&status=[%22Active%22, %22Pending%22, %22Closed%22]&perPage=1700&page=0&bounds=&center=&zoom="
+request_url = "https://api.umeprojects.com/api/v1/public/listings?orderBy=certified,verified&order=DESC,DESC&location=AZ&rooms=&bathrooms=&loanType=&sqft={%22min%22:%22%22,%22max%22:%22%22}&rate={%22min%22:%22%22,%22max%22:%22%22}&price={%22min%22:0,%22max%22:500000}&maxDownPayment={%22min%22:%22%22,%22max%22:%22%22}&status=[%22Active%22, %22Pending%22, %22Closed%22]&perPage=1700&page=0&bounds=&center=&zoom="
 form_url = "https://nsdonline.phoenix.gov/CodeEnforcement"
 
 MAX_THREADS = 1
 MAX_AGENTS = 1
-proxies = []
 MAX_TIMEOUT = 10
+MONTHS_RECENT = 6
+proxies = []
 
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36",
@@ -49,18 +50,31 @@ user_agents = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0"
 ]
 
-
-def execute_task(proxies, houses: list, id):
-    print(f"Thread {id}: Started...")
+def isRecent(open, close):
+    # If no close date found then it must be recent or active
+    if close == None or close == '':
+        return True
     
+    # Convert into datetime for comparison
+    date = datetime.strptime(open, '%m/%d/%Y')
+    current_date = datetime.now()
+    
+    delta_date = current_date - relativedelta(months=MONTHS_RECENT)
+    if delta_date <= date <= current_date:
+        return True
+    else:
+        return False
+
+def execute_task(proxies, houses: list, id):    
     # proxy_string = proxies[random.randint(0, len(proxies))]
     # proxy = {
     #     "http": f"http://{proxy_string}",
     #     "https": f"https://{proxy_string}"
     # }
     
+    # Create options to detail driver behavior.
     options = webdriver.ChromeOptions()
-    # options.add_argument('--headless')
+    options.add_argument('--headless')
     options.add_argument('--disable-blink-features=AutomationControlled')
     #options.add_argument(f"--proxy-server={proxy_string}")
     bot = webdriver.Chrome(options)
@@ -72,25 +86,29 @@ def execute_task(proxies, houses: list, id):
     
     properties_with_violations = {}
     
+    # While there are still houses in the houses array pop and look for violations.
     while len(houses) > 0:
         house = houses.pop()
-        print(f"Thread {id}: Processing new house")
+        if house['Property']['city'] != "Phoenix":
+            continue
+        
         try:
             properties_with_violations[house['Property']['address']] = check_code_violations(bot, house)
         except:
             print(f"Error encountered while checking address: {house['Property']['address']}")
             continue
     
-    print(f"Thread {id}: Exiting...")
     return properties_with_violations
 
 def check_code_violations(bot, house):
     violations = {}
     
+    # Get data from house json.
     prop_num = house['Property']['streetNumber']
     prop_st_dir = house['Property']['streetDirPrefix']
     prop_st_name = house['Property']['route']
     
+    # Enter data into text input fields.
     st_number_box = check_element_viability(bot, By.XPATH, "//input[@name='stNumber']")
     st_number_box.send_keys(prop_num)
     
@@ -100,18 +118,20 @@ def check_code_violations(bot, house):
     st_name_box = check_element_viability(bot, By.XPATH, "//input[@name='stName']")
     st_name_box.send_keys(prop_st_name)
     
+    # Click search.
     search_button = check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
     ActionChains(bot)\
         .move_to_element(search_button)\
         .click()\
         .perform()
         
-    
+    # If results are found then check them.
     results_found = check_results(bot, search_button)
     if results_found:
         violations = process_results(bot)
 
     
+    # Clear old data.
     search_button = check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
     clear_button_locator = locate_with(By.XPATH, "//input[@type='reset']").to_right_of(search_button)
     clear_button = bot.find_element(clear_button_locator)
@@ -123,31 +143,45 @@ def check_code_violations(bot, house):
     return violations
        
 def process_results(bot: webdriver.Chrome):
+    """
+    Scrapes the table of results for their violation codes and statuses returning
+    recent violations.
+
+    Args:
+        bot (webdriver.Chrome): The webdriver processing these results.
+
+    Returns:
+        entries: Recent violation entries
+    """
+    
+    # Locate needed elements.
     search_results = bot.find_element(By.XPATH, "//div[@id='search-results-container']")
-    result_header_locator = locate_with(By.TAG_NAME, "h2").above(search_results)
-    result_header = bot.find_element(result_header_locator)
-    # print(result_header.text)
     table_body = search_results.find_element(By.TAG_NAME, "tbody")
     table_results = table_body.find_elements(By.XPATH, "./tr")
     
     recent_entries = []
     
+    # For every item in the table check if recent.
     for item in table_results:
         data_set = item.find_elements(By.XPATH, './*')
+        
+        case_opened = data_set[3]
+        case_closed = data_set[4]
+        
+        # If entry isn't recent immediately move on else add to entries list.
+        if not isRecent(case_opened, case_closed):
+            continue
         
         case_number = data_set[0]
         address = data_set[1]
         case_status = data_set[2]
-        case_opened = data_set[3]
-        case_closed = data_set[4]
         owner = data_set[5]
         link = case_number.find_element(By.XPATH, './a').get_attribute('href')
         entry = CodeEnforcementEntry(case_number.text, address.text, case_status.text, case_opened.text, case_closed.text, owner.text, link)
-        
-        if entry.isRecent(3):
-            recent_entries.append(entry)
-        # print(entry, "\n")
+    
+        recent_entries.append(entry)
 
+    # For every recent entry scrape violation types from their links.
     entries = []
     for entry in recent_entries:
         get_violations(bot, entry)
@@ -158,6 +192,7 @@ def process_results(bot: webdriver.Chrome):
     return entries
         
 def get_violations(bot: webdriver.Chrome, entry: CodeEnforcementEntry):
+    # Go to the violations URL and load violations pane content.
     bot.get(entry.link)
     tab_button = bot.find_element(By.CSS_SELECTOR, "ul.nav-tabs").find_element(By.XPATH, ".//a[@href='#propertyViolationsPane']")
     ActionChains(bot)\
@@ -167,18 +202,15 @@ def get_violations(bot: webdriver.Chrome, entry: CodeEnforcementEntry):
     
     violations_tab = bot.find_element(By.CSS_SELECTOR, "div#propertyViolationsPane")
     violations_headers = violations_tab.find_elements(By.CSS_SELECTOR, 'span.lead')
+    
+    # For every violation found trim the prefix string out and append this violation to entry's violations list.
     for violation in violations_headers:
         trim = violation.text.removeprefix("Violation Code: ")
         entry.violations.append(trim)
 
-def return_is_error(bot: webdriver.Chrome):
-    try:
-        form = bot.find_element(By.XPATH, "//body[@class='neterror']")
-        return True
-    except:
-        return False
 
 def check_results(bot: webdriver.Chrome, search_button):
+    # Checks if results were returned by the search.
     try:
         form = bot.find_element(By.XPATH, "//form[@id='addressSearchForm']")
         results_locator = locate_with(By.TAG_NAME, 'p').below(form)
@@ -193,6 +225,7 @@ def check_results(bot: webdriver.Chrome, search_button):
 
 
 def check_element_viability(bot: webdriver.Chrome, locator_type, locator_value):
+    # Checks if an element is a valid target for actions to avoid stale element error.
     wait = WebDriverWait(bot, timeout=MAX_TIMEOUT)
     try:
         check_element = wait.until(EC.presence_of_element_located([locator_type, locator_value]))
@@ -205,27 +238,30 @@ def check_element_viability(bot: webdriver.Chrome, locator_type, locator_value):
         print(f'Timed out while looking for element with {locator_type}:{locator_value}')
     
 def read_from_file():
+    # Reads data from file instead of requesting it for the sake of speed.
     houses: list
     with open("HouseData.json", mode="r") as f:
         houses = json.load(f)
         return houses
     
 def borrow_from_api():
+    # "Borrows" the data from the API.
     response = requests.get(request_url)
     data = response.json()
     houses = []
     with open("HouseData.json", mode="w") as f:
         houses_list: list = data['items']
         for house in houses_list:
-            #if house['Property']['listPrice'] < 500000:
-            houses.append(house)
+            if house['Property']['listPrice'] < 500000:
+                houses.append(house)
         f.write(json.dumps(houses))
     
     print(len(houses))
     
     return houses
 
-def start_threads(proxies, houses : list):    
+def start_threads(houses : list):
+    proxies = None # get_proxies()
     properties_in_violation = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
         futures = {executor.submit(execute_task, proxies, houses, i + 1): i for i in range(MAX_AGENTS)}
@@ -259,30 +295,3 @@ def get_proxies():
     bot.close()
     return prox
 
-def main():
-    start_time = time.time()
-    # houses = borrow_from_api() # Comment out if the file already exists with data...
-    houses = read_from_file() # Comment out if you want to update existing data or have none...
-    
-    # Filter all non-Phoenix homes...
-    for house in houses:
-        if house['Property']['city'] != 'Phoenix':
-            houses.remove(house)
-
-    print(f"Number of houses in Phoenix under 500k: {len(houses)}")
-    
-    # proxies = get_proxies()
-    proxies = None
-    results = start_threads(proxies, houses)
-    
-    end_time = time.time()
-    delta_time = end_time - start_time
-    
-    print("Results: ", results)
-    print("Time Elapsed: ", delta_time)
-    
-
-
-    
-if __name__ == '__main__':
-    main()
