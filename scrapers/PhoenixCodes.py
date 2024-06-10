@@ -271,11 +271,11 @@ def start_threads(houses : list):
     return properties_in_violation
 
 
-with open("PhoenixAddressesTrunc.json", "r") as f:
+with open("data/PhoenixAddressesTrunc.json", "r") as f:
     houses = json.loads(f.read())['addresses']
     global total_length
     total_length = len(houses)
     output = execute_task(houses)
     
-    with open("PhoenixAddressResults.json", "w") as res:
+    with open("data/PhoenixAddressResults.json", "w") as res:
         res.write(json.dumps(output))

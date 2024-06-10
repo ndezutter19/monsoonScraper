@@ -44,22 +44,36 @@ def get_osm_data(query):
     response = requests.get(overpass_url, params={'data': query})
     return response.json()
 
-def get_addresses_in_city(city_name):
-    # Define the Overpass query to get addresses within a city
-    overpass_query = f"""
-    [out:json];
-    area[name="{city_name}"]->.searchArea;
+def get_addresses_in_city():
+
+    # Define the Overpass API endpoint
+    overpass_url = "http://overpass-api.de/api/interpreter"
+
+    # Define the Overpass query
+    # This query retrieves the first 10 nodes and ways tagged as residential buildings within Phoenix, AZ.
+    overpass_query = """
+    [out:json][timeout:25];
+    area["name"="Phoenix"]["boundary"="administrative"]["admin_level"="8"]->.searchArea;
     (
-      node["addr:housenumber"](area.searchArea);
-      way["addr:housenumber"](area.searchArea);
-      relation["addr:housenumber"](area.searchArea);
+    node["building"="residential"](area.searchArea);
+    way["building"="residential"](area.searchArea);
+    node["building"="house"](area.searchArea);
+    way["building"="house"](area.searchArea);
+    node["building"="apartments"](area.searchArea);
+    way["building"="apartments"](area.searchArea);
+    node["building"="detached"](area.searchArea);
+    way["building"="detached"](area.searchArea);
+    node["building"="semi-detached"](area.searchArea);
+    way["building"="semi-detached"](area.searchArea);
+    node["building"="terrace"](area.searchArea);
+    way["building"="terrace"](area.searchArea);
     );
     out body;
-    >;
-    out skel qt;
     """
 
-    data = get_osm_data(overpass_query)
+    # Make the request to the Overpass API
+    response = requests.post(overpass_url, data={'data': overpass_query})
+    data = response.json()
     addresses = []
 
     for element in data['elements']:
@@ -68,3 +82,9 @@ def get_addresses_in_city(city_name):
             addresses.append(address)
     
     return addresses
+
+data = {}
+with open("PhoenixAddresses.json", 'w') as pj:
+    data['addresses'] = get_addresses_in_city()
+    serialized = json.dumps(data)
+    pj.write(serialized)
