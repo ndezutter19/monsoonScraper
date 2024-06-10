@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import logging
 import ScrapeTools
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
@@ -90,18 +91,28 @@ def execute_task(houses: list):
     properties_with_violations = {}
     
     count = 1
+    average_lap = 0
     # While there are still houses in the houses array pop and look for violations.
     while len(houses) > 0:
+        lap_start = time.time()
         house = houses.pop()
         print(f"Processing house {count} of {total_length}...")
         violations = check_code_violations(bot, house)
         
+        lap_end = time.time()
+        lap_delta = lap_end - lap_start
+        print(f"Took: {lap_delta}s")
+        average_lap += lap_delta
+        if count != 1:
+            average_lap /= 2
+            
         count += 1
         if violations == {} or violations is None:
             continue
         
         properties_with_violations[house] = violations
     
+    print(f"Average Lap: {average_lap}s")
     return properties_with_violations
 
 def check_code_violations(bot : webdriver.Chrome, address):
@@ -270,7 +281,7 @@ def start_threads(houses : list):
     
     return properties_in_violation
 
-
+start_time = time.time()
 with open("data/PhoenixAddressesTrunc.json", "r") as f:
     houses = json.loads(f.read())['addresses']
     global total_length
@@ -279,3 +290,7 @@ with open("data/PhoenixAddressesTrunc.json", "r") as f:
     
     with open("data/PhoenixAddressResults.json", "w") as res:
         res.write(json.dumps(output))
+        
+end_time = time.time()
+delta_time = end_time - start_time
+print(f"Altogether took: {delta_time}s")
