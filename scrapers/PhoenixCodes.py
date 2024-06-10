@@ -1,10 +1,6 @@
 import concurrent.futures
 import json
-import re
-import random
-import time
-import pprint
-import requests
+import logging
 import ScrapeTools
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -16,7 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import ElementNotVisibleException
 from selenium.webdriver.support.relative_locator import locate_with
 from selenium.common.exceptions import StaleElementReferenceException
-from monsoonScraper.scrapers.CodeEnforcementEntry import CodeEnforcementEntry
+from CodeEnforcementEntry import CodeEnforcementEntry
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -52,6 +48,13 @@ user_agents = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:80.0) Gecko/20100101 Firefox/80.0"
 ]
 
+def violationConfirmed(status: str):
+    temp = status.lower()
+    if temp == "closed no violation found":
+        return False
+    return True
+    
+    
 def isRecent(open, close):
     # If no close date found then it must be recent or active
     if close == None or close == '':
@@ -67,7 +70,7 @@ def isRecent(open, close):
     else:
         return False
 
-def execute_task(proxies, houses: list, id):    
+def execute_task(houses: list):    
     # proxy_string = proxies[random.randint(0, len(proxies))]
     # proxy = {
     #     "http": f"http://{proxy_string}",
@@ -86,47 +89,52 @@ def execute_task(proxies, houses: list, id):
     
     properties_with_violations = {}
     
+    count = 1
     # While there are still houses in the houses array pop and look for violations.
     while len(houses) > 0:
         house = houses.pop()
-        if house['city'] != "Phoenix":
+        print(f"Processing house {count} of {total_length}...")
+        violations = check_code_violations(bot, house)
+        
+        count += 1
+        if violations == {} or violations is None:
             continue
         
-        try:
-            properties_with_violations[house['address']] = check_code_violations(bot, house)
-        except:
-            print(f"Error encountered while checking address: {house['Property']['address']}")
-            continue
+        properties_with_violations[house] = violations
     
     return properties_with_violations
 
-def check_code_violations(bot, house):
+def check_code_violations(bot : webdriver.Chrome, address):
     violations = {}
     
-    # Get data from house json.
-    pattern = r'(\d+)\s+(\w+)\s+([\w\s]+)\s+(\w+)$'
+    breakdown = ScrapeTools.break_down_address_op(address)
+    try:
+        prop_num = breakdown['streetNum']
+        prop_st_dir = breakdown['streetDirection']
+        type_abbr = ScrapeTools.get_abbreviated(breakdown['streetType'])
+        prop_st_name = f"{breakdown['streetName']} {type_abbr}"
+    except TypeError:
+        logging.WARNING(f"Error in input data, address: {address}")
+        return {}
     
-    match = re.match(pattern, house['address'])
+    if breakdown['suffixDirection'] is not None:
+        prop_st_name += breakdown['suffixDirection']
     
-    if not match:
-        raise ValueError("Address format is incorrect. Expected format: 'streetNumber streetDirection streetName streetType'")
-    
-    prop_num = match.group(1)
-    prop_st_dir = match.group(2)
-    prop_st_name = match.group(3) + " " +  match.group(4)
+    # Get form that is parent to all needed elements to reduce XPATH traversal time.
+    parent = ScrapeTools.check_element_viability(bot, By.XPATH, "//form[@action='/CodeEnforcement' and @id='addressSearchForm']")
     
     # Enter data into text input fields.
-    st_number_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stNumber']")
+    st_number_box = ScrapeTools.check_element_viability(parent, By.XPATH, ".//input[@name='stNumber']")
     st_number_box.send_keys(prop_num)
     
-    st_direction_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stDirection']")
-    st_direction_box.send_keys(prop_st_dir)
+    st_direction_box = ScrapeTools.check_element_viability(parent, By.XPATH, ".//input[@name='stDirection']")
+    st_direction_box.send_keys(prop_st_dir[0])
     
-    st_name_box = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@name='stName']")
+    st_name_box = ScrapeTools.check_element_viability(parent, By.XPATH, ".//input[@name='stName']")
     st_name_box.send_keys(prop_st_name)
     
     # Click search.
-    search_button = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
+    search_button = ScrapeTools.check_element_viability(parent, By.XPATH, ".//input[@type='submit' and @value='Search by Address']")
     ActionChains(bot)\
         .move_to_element(search_button)\
         .click()\
@@ -139,8 +147,8 @@ def check_code_violations(bot, house):
 
     
     # Clear old data.
-    search_button = ScrapeTools.check_element_viability(bot, By.XPATH, "//input[@type='submit' and @value='Search by Address']")
-    clear_button_locator = locate_with(By.XPATH, "//input[@type='reset']").to_right_of(search_button)
+    search_button = ScrapeTools.check_element_viability(bot, By.XPATH, ".//input[@type='submit' and @value='Search by Address']")
+    clear_button_locator = locate_with(By.XPATH, ".//input[@type='reset']").to_right_of(search_button)
     clear_button = bot.find_element(clear_button_locator)
     ActionChains(bot)\
         .move_to_element(clear_button)\
@@ -172,30 +180,39 @@ def process_results(bot: webdriver.Chrome):
     for item in table_results:
         data_set = item.find_elements(By.XPATH, './*')
         
-        case_opened = data_set[3]
-        case_closed = data_set[4]
+        case_status = data_set[2].text
+        case_opened = data_set[3].text
+        case_closed = data_set[4].text
         
-        # If entry isn't recent immediately move on else add to entries list.
+        
+        # If entry isn't recent immediately move on, else add to entries list.
         if not isRecent(case_opened, case_closed):
             continue
         
+        if not violationConfirmed(case_status):
+            continue
+        
+        print('Found recent entry, logging...')
+        
         case_number = data_set[0]
         address = data_set[1]
-        case_status = data_set[2]
         owner = data_set[5]
         link = case_number.find_element(By.XPATH, './a').get_attribute('href')
-        entry = CodeEnforcementEntry(case_number.text, address.text, case_status.text, case_opened.text, case_closed.text, owner.text, link)
+        entry = CodeEnforcementEntry(case_number.text, address.text, case_status, case_opened, case_closed, owner.text, link)
     
         recent_entries.append(entry)
 
     # For every recent entry scrape violation types from their links.
     entries = []
     for entry in recent_entries:
-        get_violations(bot, entry)
-        entries.append(entry.to_dict())
+        if get_violations(bot, entry):
+            entries.append(entry.to_dict())
     
     
     bot.get(form_url)
+    if len(entries) == 0:
+        return None
+    
     return entries
         
 def get_violations(bot: webdriver.Chrome, entry: CodeEnforcementEntry):
@@ -210,10 +227,15 @@ def get_violations(bot: webdriver.Chrome, entry: CodeEnforcementEntry):
     violations_tab = bot.find_element(By.CSS_SELECTOR, "div#propertyViolationsPane")
     violations_headers = violations_tab.find_elements(By.CSS_SELECTOR, 'span.lead')
     
+    if len(violations_headers) == 0:
+        return False
+    
     # For every violation found trim the prefix string out and append this violation to entry's violations list.
     for violation in violations_headers:
         trim = violation.text.removeprefix("Violation Code: ")
         entry.violations.append(trim)
+        
+    return True
 
 
 def check_results(bot: webdriver.Chrome, search_button):
@@ -249,3 +271,11 @@ def start_threads(houses : list):
     return properties_in_violation
 
 
+with open("PhoenixAddressesTrunc.json", "r") as f:
+    houses = json.loads(f.read())['addresses']
+    global total_length
+    total_length = len(houses)
+    output = execute_task(houses)
+    
+    with open("PhoenixAddressResults.json", "w") as res:
+        res.write(json.dumps(output))

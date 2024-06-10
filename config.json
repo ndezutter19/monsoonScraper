@@ -15,5 +15,6 @@
         "listPrice": null,
         "photos": [],
         "violations": []
-    }
+    },
+    "recentMonths": 6
 }
