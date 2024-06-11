@@ -1,8 +1,11 @@
 import concurrent.futures
+from io import StringIO
 import json
+from lxml import etree
 import logging
 import ScrapeTools
 import time
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
@@ -16,6 +19,7 @@ from selenium.common.exceptions import StaleElementReferenceException
 from CodeEnforcementEntry import CodeEnforcementEntry
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from bs4 import BeautifulSoup
 
 request_url = "https://api.umeprojects.com/api/v1/public/listings?orderBy=certified,verified&order=DESC,DESC&location=AZ&rooms=&bathrooms=&loanType=&sqft={%22min%22:%22%22,%22max%22:%22%22}&rate={%22min%22:%22%22,%22max%22:%22%22}&price={%22min%22:0,%22max%22:500000}&maxDownPayment={%22min%22:%22%22,%22max%22:%22%22}&status=[%22Active%22, %22Pending%22, %22Closed%22]&perPage=1700&page=0&bounds=&center=&zoom="
 form_url = "https://nsdonline.phoenix.gov/CodeEnforcement"
@@ -280,17 +284,19 @@ def start_threads(houses : list):
                 raise e
     
     return properties_in_violation
-
-start_time = time.time()
-with open("data/PhoenixAddressesTrunc.json", "r") as f:
-    houses = json.loads(f.read())['addresses']
-    global total_length
-    total_length = len(houses)
-    output = execute_task(houses)
     
-    with open("data/PhoenixAddressResults.json", "w") as res:
-        res.write(json.dumps(output))
-        
+    
+start_time = time.time()
+#with open("data/PhoenixAddressesTrunc.json", "r") as f:
+#    houses = json.loads(f.read())['addresses']
+#    global total_length
+#    total_length = len(houses)
+#    output = execute_task(houses)
+    
+#    with open("data/PhoenixAddressResults.json", "w") as res:
+#        res.write(json.dumps(output))
+
+
 end_time = time.time()
 delta_time = end_time - start_time
 print(f"Altogether took: {delta_time}s")
